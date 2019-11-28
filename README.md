@@ -13,13 +13,13 @@ ts=2018-05-01T16:13:12.849086255Z caller=main.go:47 transport=HTTP addr=:8080
 Create a Customer:
 
 ```bash
-$ curl -d '{"id":"1234","Name":"Go Kit"}' -H "Content-Type: application/json" -X POST http://localhost:8080/customers/
+curl -d '{"id":"1234","Name":"Go Kit"}' -H "Content-Type: application/json" -X POST http://localhost:8080/customers/
 {}
 ```
 
 Get the customer you just created
 
 ```bash
-$ curl localhost:8080/customers/1234
+curl localhost:8080/customers/1234
 {"customer":{"id":"1234","name":"Go Kit"}}
 ```
