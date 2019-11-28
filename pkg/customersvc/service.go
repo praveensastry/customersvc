@@ -22,8 +22,10 @@ type Service interface {
 // Customer represents a single user customer.
 // ID should be globally unique.
 type Customer struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name,omitempty"`
+	ID        string    `json:"id"` // Ideally we genrate this, instead of asking client to submit it
+	Name      string    `json:"name"`
+	Email     string    `json:"email"`
+	Phone     string    `json:"phone,omitempty"`
 	Addresses []Address `json:"addresses,omitempty"`
 }
 
@@ -35,36 +37,42 @@ type Address struct {
 }
 
 var (
-	ErrInconsistentIDs = errors.New("inconsistent IDs")
-	ErrAlreadyExists   = errors.New("already exists")
-	ErrNotFound        = errors.New("not found")
+	ErrInconsistentIDs       = errors.New("inconsistent IDs")
+	ErrAlreadyExists         = errors.New("already exists")
+	ErrNotFound              = errors.New("not found")
+	ErrMissingRequiredInputs = errors.New("Missing required fields. Name and Email are required to create a Customer")
 )
 
 type inmemService struct {
-	mtx sync.RWMutex
-	m   map[string]Customer
+	mtx       sync.RWMutex
+	customers map[string]Customer
 }
 
 func NewInmemService() Service {
 	return &inmemService{
-		m: map[string]Customer{},
+		customers: map[string]Customer{},
 	}
 }
 
 func (s *inmemService) PostCustomer(ctx context.Context, p Customer) error {
+	if p.Name == "" || p.Email == "" {
+		return ErrMissingRequiredInputs // Validate before acquiring a lock
+	}
+
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
-	if _, ok := s.m[p.ID]; ok {
+
+	if _, ok := s.customers[p.ID]; ok {
 		return ErrAlreadyExists // POST = create, don't overwrite
 	}
-	s.m[p.ID] = p
+	s.customers[p.ID] = p
 	return nil
 }
 
 func (s *inmemService) GetCustomer(ctx context.Context, id string) (Customer, error) {
 	s.mtx.RLock()
 	defer s.mtx.RUnlock()
-	p, ok := s.m[id]
+	p, ok := s.customers[id]
 	if !ok {
 		return Customer{}, ErrNotFound
 	}
@@ -77,7 +85,7 @@ func (s *inmemService) PutCustomer(ctx context.Context, id string, p Customer) e
 	}
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
-	s.m[id] = p // PUT = create or update
+	s.customers[id] = p // PUT = create or update
 	return nil
 }
 
@@ -89,7 +97,7 @@ func (s *inmemService) PatchCustomer(ctx context.Context, id string, p Customer)
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
 
-	existing, ok := s.m[id]
+	existing, ok := s.customers[id]
 	if !ok {
 		return ErrNotFound // PATCH = update existing, don't create
 	}
@@ -98,7 +106,7 @@ func (s *inmemService) PatchCustomer(ctx context.Context, id string, p Customer)
 	// possible to PATCH any field to its zero value. That is, the zero value
 	// means not specified. The way around this is to use e.g. Name *string in
 	// the Customer definition. But since this is just a demonstrative example,
-	// I'm leaving that out.
+	// I'customers leaving that out.
 
 	if p.Name != "" {
 		existing.Name = p.Name
@@ -106,24 +114,24 @@ func (s *inmemService) PatchCustomer(ctx context.Context, id string, p Customer)
 	if len(p.Addresses) > 0 {
 		existing.Addresses = p.Addresses
 	}
-	s.m[id] = existing
+	s.customers[id] = existing
 	return nil
 }
 
 func (s *inmemService) DeleteCustomer(ctx context.Context, id string) error {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
-	if _, ok := s.m[id]; !ok {
+	if _, ok := s.customers[id]; !ok {
 		return ErrNotFound
 	}
-	delete(s.m, id)
+	delete(s.customers, id)
 	return nil
 }
 
 func (s *inmemService) GetAddresses(ctx context.Context, customerID string) ([]Address, error) {
 	s.mtx.RLock()
 	defer s.mtx.RUnlock()
-	p, ok := s.m[customerID]
+	p, ok := s.customers[customerID]
 	if !ok {
 		return []Address{}, ErrNotFound
 	}
@@ -133,7 +141,7 @@ func (s *inmemService) GetAddresses(ctx context.Context, customerID string) ([]A
 func (s *inmemService) GetAddress(ctx context.Context, customerID string, addressID string) (Address, error) {
 	s.mtx.RLock()
 	defer s.mtx.RUnlock()
-	p, ok := s.m[customerID]
+	p, ok := s.customers[customerID]
 	if !ok {
 		return Address{}, ErrNotFound
 	}
@@ -148,7 +156,7 @@ func (s *inmemService) GetAddress(ctx context.Context, customerID string, addres
 func (s *inmemService) PostAddress(ctx context.Context, customerID string, a Address) error {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
-	p, ok := s.m[customerID]
+	p, ok := s.customers[customerID]
 	if !ok {
 		return ErrNotFound
 	}
@@ -158,14 +166,14 @@ func (s *inmemService) PostAddress(ctx context.Context, customerID string, a Add
 		}
 	}
 	p.Addresses = append(p.Addresses, a)
-	s.m[customerID] = p
+	s.customers[customerID] = p
 	return nil
 }
 
 func (s *inmemService) DeleteAddress(ctx context.Context, customerID string, addressID string) error {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
-	p, ok := s.m[customerID]
+	p, ok := s.customers[customerID]
 	if !ok {
 		return ErrNotFound
 	}
@@ -180,6 +188,6 @@ func (s *inmemService) DeleteAddress(ctx context.Context, customerID string, add
 		return ErrNotFound
 	}
 	p.Addresses = newAddresses
-	s.m[customerID] = p
+	s.customers[customerID] = p
 	return nil
 }
